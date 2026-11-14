@@ -23,6 +23,8 @@ jobs:
       ENGINE_REPO: Kapro777/fatal-frame-native-engine
       XBE_REPO: Kapro777/fatal-frame-xbe
       BUILDS_REPO: Kapro777/fatal-frame-builds
+      ENGINE_DIR: ${{ github.workspace }}/engine
+      TOOLKIT_DIR: ${{ github.workspace }}/xboxrecomp
     steps:
       - name: Checkout this repo (CI glue + docs)
         uses: actions/checkout@v4
@@ -63,60 +65,86 @@ jobs:
           python -c "import capstone; print('capstone', capstone.__version__)"
 
       - name: "Pipeline 2/5 - Parse XBE"
-        working-directory: xboxrecomp
-        run: python -m tools.xbe_parser ../game/default.xbe --json ../game/fatalframe_analysis.json
+        working-directory: ${{ env.TOOLKIT_DIR }}
+        run: python -m tools.xbe_parser ${{ github.workspace }}/game/default.xbe --json ${{ github.workspace }}/game/fatalframe_analysis.json
 
       - name: "Pipeline 3/5 - Disassemble"
-        working-directory: xboxrecomp
-        run: python -m tools.disasm ../game/default.xbe --text-only -v
+        working-directory: ${{ env.TOOLKIT_DIR }}
+        run: python -m tools.disasm ${{ github.workspace }}/game/default.xbe --text-only -v
 
       - name: "Pipeline 4a/5 - Identify functions"
-        working-directory: xboxrecomp
-        run: python -m tools.func_id ../game/default.xbe -v
+        working-directory: ${{ env.TOOLKIT_DIR }}
+        run: python -m tools.func_id ${{ github.workspace }}/game/default.xbe -v
 
       - name: "Pipeline 4b/5 - ABI analysis"
-        working-directory: xboxrecomp
-        run: python -m tools.abi_analysis ../game/default.xbe -v
+        working-directory: ${{ env.TOOLKIT_DIR }}
+        run: python -m tools.abi_analysis ${{ github.workspace }}/game/default.xbe -v
 
       - name: "Pipeline 5/5 - Recompile to C"
-        working-directory: xboxrecomp
+        working-directory: ${{ env.TOOLKIT_DIR }}
         run: >
-          python -m tools.recomp ../game/default.xbe --all --split 250
+          python -m tools.recomp ${{ github.workspace }}/game/default.xbe --all --split 250
           --game-name "Fatal Frame"
-          --gen-dir ../engine/src/recomp/gen
+          --gen-dir ${{ env.ENGINE_DIR }}/src/recomp/gen
+
+      - name: "Check generated code"
+        shell: pwsh
+        run: |
+          $gen = "${{ env.ENGINE_DIR }}/src/recomp/gen"
+          $files = Get-ChildItem $gen -Filter *.c
+          Write-Host "generated C files: $($files.Count)"
+          $files | Select-Object Name, Length
+          if ($files.Count -eq 0) { throw "recomp produced no C files" }
 
       - name: "Build 6/7 - Configure (CMake)"
-        working-directory: engine
-        run: cmake -S . -B build -DXBOXRECOMP_DIR=../xboxrecomp -A x64
+        shell: pwsh
+        run: |
+          cmake --version
+          Write-Host "engine CMakeLists present: $(Test-Path '${{ env.ENGINE_DIR }}/CMakeLists.txt')"
+          cmake -S "${{ env.ENGINE_DIR }}" -B "${{ env.ENGINE_DIR }}/build" `
+                -DXBOXRECOMP_DIR="${{ env.TOOLKIT_DIR }}" -A x64
+          Write-Host "---- configured project ----"
+          Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern 'CMAKE_HOME_DIRECTORY|XBOXRECOMP_DIR' | ForEach-Object { $_.Line }
+          $home = (Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$').Matches[0].Groups[1].Value
+          if ($home -ne "${{ env.ENGINE_DIR }}") { throw "configured the wrong project: $home" }
 
       - name: "Build 7/7 - Compile (MSVC, Release)"
-        working-directory: engine
-        run: cmake --build build --config Release --parallel
+        shell: pwsh
+        run: cmake --build "${{ env.ENGINE_DIR }}/build" --config Release --target fatalframe_native --parallel
 
-      - name: "Collect build logs"
+      - name: "Locate executable"
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "${{ env.ENGINE_DIR }}/build" -Recurse -Filter fatalframe_native.exe -ErrorAction SilentlyContinue
+          if (-not $exe) {
+            Write-Host "::error::executable not found under engine/build"
+            Get-ChildItem "${{ env.ENGINE_DIR }}/build" -Recurse -Filter *.exe | Select-Object FullName
+            exit 1
+          }
+          $exe | Select-Object FullName, Length
+
+      - name: "Collect pipeline outputs for the private store"
         if: always()
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          if (Test-Path engine/build/Release/fatalframe_native.exe) {
-            Copy-Item engine/build/Release/fatalframe_native.exe artifacts/
+          New-Item -ItemType Directory -Force -Path outputs | Out-Null
+          Copy-Item "${{ env.ENGINE_DIR }}/build/Release/fatalframe_native.exe" outputs/ -ErrorAction SilentlyContinue
+          foreach ($d in @("${{ env.TOOLKIT_DIR }}/tools/disasm/output", "${{ env.TOOLKIT_DIR }}/tools/func_id/output", "${{ env.TOOLKIT_DIR }}/tools/abi_analysis/output")) {
+            if (Test-Path $d) { Copy-Item $d outputs -Recurse -Force -ErrorAction SilentlyContinue }
           }
-          # keep any pipeline output for debugging
-          foreach ($d in @("xboxrecomp/tools/disasm/output", "xboxrecomp/tools/func_id/output", "xboxrecomp/tools/abi_analysis/output")) {
-            if (Test-Path $d) { Copy-Item $d artifacts -Recurse -Force -ErrorAction SilentlyContinue }
-          }
-          Get-ChildItem artifacts | Select-Object Name, Length
+          Get-ChildItem outputs | Select-Object Name, Length
 
       - name: "Publish to private artifact store"
         if: always()
         shell: pwsh
         env:
-          TOKEN: ${{ secrets.PORT_BUILD_PAT }}
+          GH_TOKEN: ${{ secrets.PORT_BUILD_PAT }}
         run: |
           $repo = "${{ env.BUILDS_REPO }}"
-          if (Test-Path engine/build/Release/fatalframe_native.exe) {
-            Compress-Archive -Path engine/build/Release/fatalframe_native.exe -DestinationPath fatalframe_native.zip -Force
-            gh release create "run-${{ github.run_id }}" fatalframe_native.zip --repo $repo --title "build run ${{ github.run_id }}" --notes "Automated static-recompilation build. Contains the game's code - private use only." | Out-Host
+          $exe = "${{ env.ENGINE_DIR }}/build/Release/fatalframe_native.exe"
+          if (Test-Path $exe) {
+            Compress-Archive -Path $exe -DestinationPath fatalframe_native.zip -Force
+            gh release create "run-${{ github.run_id }}" fatalframe_native.zip --repo $repo --title "build run ${{ github.run_id }}" --notes "Automated static-recompilation build. Contains the game's code - private use only."
           } else {
             Write-Host "::warning::no executable produced - nothing to publish"
           }
