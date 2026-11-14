@@ -67,9 +67,9 @@ jobs:
           path: |
             engine/build
             engine/src/recomp/gen
-          key: fatal-build-${{ github.sha }}
+          key: fatal-build-v2-${{ github.sha }}
           restore-keys: |
-            fatal-build-
+            fatal-build-v2-
 
       - name: Fingerprint XBE (skip pipeline if unchanged)
         id: fingerprint
@@ -121,6 +121,7 @@ jobs:
           python -m tools.recomp ${{ github.workspace }}/game/default.xbe --all --split 250
           --game-name "Fatal Frame"
           --gen-dir ${{ env.ENGINE_DIR }}/src/recomp/gen
+          --trace-functions ${{ env.ENGINE_DIR }}/config/trace_functions.json
 
       - name: "Stamp XBE fingerprint"
         if: steps.fingerprint.outputs.need == 'true'
