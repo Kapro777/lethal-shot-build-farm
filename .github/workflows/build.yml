@@ -1,0 +1,122 @@
+# Fatal Frame (Xbox) static recompilation - cloud build
+#
+# Runs the whole pipeline + MSVC build on GitHub runners:
+#   parse XBE -> disasm -> func_id -> abi_analysis -> recomp to C -> compile .exe
+#
+# Game code never lands in this repository: the XBE is fetched from a private
+# store at build time and the generated C + the built .exe only exist on the
+# runner, then go to a private artifact repo.
+
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  recompile:
+    runs-on: windows-latest
+    env:
+      TOOLKIT_REF: v0.17.0
+      TOOLKIT_REPO: sp00nznet/xboxrecomp
+      ENGINE_REPO: Kapro777/fatal-frame-native-engine
+      XBE_REPO: Kapro777/fatal-frame-xbe
+      BUILDS_REPO: Kapro777/fatal-frame-builds
+    steps:
+      - name: Checkout this repo (CI glue + docs)
+        uses: actions/checkout@v4
+        with:
+          path: buildrepo
+
+      - name: Checkout toolkit (pinned)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TOOLKIT_REPO }}
+          ref: ${{ env.TOOLKIT_REF }}
+          path: xboxrecomp
+
+      - name: Checkout engine repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.ENGINE_REPO }}
+          path: engine
+
+      - name: Fetch default.xbe from private store
+        shell: pwsh
+        env:
+          TOKEN: ${{ secrets.PORT_BUILD_PAT }}
+        run: |
+          New-Item -ItemType Directory -Force -Path game | Out-Null
+          $headers = @{ Authorization = "Bearer $env:TOKEN" }
+          $uri = "https://raw.githubusercontent.com/${{ env.XBE_REPO }}/main/default.xbe"
+          Invoke-WebRequest -Uri $uri -Headers $headers -OutFile "game/default.xbe"
+          $len = (Get-Item game/default.xbe).Length
+          Write-Host "default.xbe: $len bytes"
+          if ($len -ne 1773568) { throw "unexpected XBE size: $len (expected 1773568)" }
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install capstone
+          python -c "import capstone; print('capstone', capstone.__version__)"
+
+      - name: "Pipeline 2/5 - Parse XBE"
+        working-directory: xboxrecomp
+        run: python -m tools.xbe_parser ../game/default.xbe --json ../game/fatalframe_analysis.json
+
+      - name: "Pipeline 3/5 - Disassemble"
+        working-directory: xboxrecomp
+        run: python -m tools.disasm ../game/default.xbe --text-only -v
+
+      - name: "Pipeline 4a/5 - Identify functions"
+        working-directory: xboxrecomp
+        run: python -m tools.func_id ../game/default.xbe -v
+
+      - name: "Pipeline 4b/5 - ABI analysis"
+        working-directory: xboxrecomp
+        run: python -m tools.abi_analysis ../game/default.xbe -v
+
+      - name: "Pipeline 5/5 - Recompile to C"
+        working-directory: xboxrecomp
+        run: >
+          python -m tools.recomp ../game/default.xbe --all --split 250
+          --game-name "Fatal Frame"
+          --gen-dir ../engine/src/recomp/gen
+
+      - name: "Build 6/7 - Configure (CMake)"
+        working-directory: engine
+        run: cmake -S . -B build -DXBOXRECOMP_DIR=../xboxrecomp -A x64
+
+      - name: "Build 7/7 - Compile (MSVC, Release)"
+        working-directory: engine
+        run: cmake --build build --config Release --parallel
+
+      - name: "Collect build logs"
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          if (Test-Path engine/build/Release/fatalframe_native.exe) {
+            Copy-Item engine/build/Release/fatalframe_native.exe artifacts/
+          }
+          # keep any pipeline output for debugging
+          foreach ($d in @("xboxrecomp/tools/disasm/output", "xboxrecomp/tools/func_id/output", "xboxrecomp/tools/abi_analysis/output")) {
+            if (Test-Path $d) { Copy-Item $d artifacts -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          Get-ChildItem artifacts | Select-Object Name, Length
+
+      - name: "Publish to private artifact store"
+        if: always()
+        shell: pwsh
+        env:
+          TOKEN: ${{ secrets.PORT_BUILD_PAT }}
+        run: |
+          $repo = "${{ env.BUILDS_REPO }}"
+          if (Test-Path engine/build/Release/fatalframe_native.exe) {
+            Compress-Archive -Path engine/build/Release/fatalframe_native.exe -DestinationPath fatalframe_native.zip -Force
+            gh release create "run-${{ github.run_id }}" fatalframe_native.zip --repo $repo --title "build run ${{ github.run_id }}" --notes "Automated static-recompilation build. Contains the game's code - private use only." | Out-Host
+          } else {
+            Write-Host "::warning::no executable produced - nothing to publish"
+          }

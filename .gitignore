@@ -1,0 +1,11 @@
+# This repo holds CI glue and docs only. No game files, no generated code.
+game/
+*.xbe
+*.iso
+*.xiso
+src/recomp/gen/
+engine/
+build/
+artifacts/
+*.exe
+*.zip
