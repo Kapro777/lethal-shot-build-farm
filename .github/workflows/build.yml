@@ -67,9 +67,9 @@ jobs:
           path: |
             engine/build
             engine/src/recomp/gen
-          key: fatal-build-v2-${{ github.sha }}
+          key: fatal-build-v3-${{ github.sha }}
           restore-keys: |
-            fatal-build-v2-
+            fatal-build-v3-
 
       - name: Fingerprint XBE (skip pipeline if unchanged)
         id: fingerprint
@@ -102,7 +102,7 @@ jobs:
       - name: "Pipeline 3/5 - Disassemble"
         if: steps.fingerprint.outputs.need == 'true'
         working-directory: ${{ env.TOOLKIT_DIR }}
-        run: python -m tools.disasm ${{ github.workspace }}/game/default.xbe --text-only -v
+        run: python -m tools.disasm ${{ github.workspace }}/game/default.xbe --text-only -v --seed-functions ${{ env.ENGINE_DIR }}/config/seed_functions.json
 
       - name: "Pipeline 4a/5 - Identify functions"
         if: steps.fingerprint.outputs.need == 'true'
