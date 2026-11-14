@@ -105,8 +105,8 @@ jobs:
                 -DXBOXRECOMP_DIR="${{ env.TOOLKIT_DIR }}" -A x64
           Write-Host "---- configured project ----"
           Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern 'CMAKE_HOME_DIRECTORY|XBOXRECOMP_DIR' | ForEach-Object { $_.Line }
-          $home = (Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$').Matches[0].Groups[1].Value
-          if ($home -ne "${{ env.ENGINE_DIR }}") { throw "configured the wrong project: $home" }
+          $cmakeHome = (Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$').Matches[0].Groups[1].Value
+          if ($cmakeHome -ne "${{ env.ENGINE_DIR }}") { throw "configured the wrong project: $cmakeHome" }
 
       - name: "Build 7/7 - Compile (MSVC, Release)"
         shell: pwsh
