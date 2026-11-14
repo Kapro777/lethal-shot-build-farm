@@ -106,7 +106,8 @@ jobs:
           Write-Host "---- configured project ----"
           Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern 'CMAKE_HOME_DIRECTORY|XBOXRECOMP_DIR' | ForEach-Object { $_.Line }
           $cmakeHome = (Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$').Matches[0].Groups[1].Value
-          if ($cmakeHome -ne "${{ env.ENGINE_DIR }}") { throw "configured the wrong project: $cmakeHome" }
+          $engineNorm = ("${{ env.ENGINE_DIR }}" -replace '\\','/')
+          if ($cmakeHome -ne $engineNorm) { throw "configured the wrong project: $cmakeHome (expected $engineNorm)" }
 
       - name: "Build 7/7 - Compile (MSVC, Release)"
         shell: pwsh
