@@ -6,6 +6,10 @@
 # Game code never lands in this repository: the XBE is fetched from a private
 # store at build time and the generated C + the built .exe only exist on the
 # runner, then go to a private artifact repo.
+#
+# Iteration model: when the XBE has not changed, the pipeline steps are skipped
+# and the cached MSVC objects are reused, so editing the engine (main.c,
+# recomp_manual.c) rebuilds in minutes rather than the full pipeline run.
 
 name: build
 
@@ -57,7 +61,33 @@ jobs:
           Write-Host "default.xbe: $len bytes"
           if ($len -ne 1773568) { throw "unexpected XBE size: $len (expected 1773568)" }
 
+      - name: Restore MSVC build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            engine/build
+            engine/src/recomp/gen
+          key: fatal-build-${{ github.sha }}
+          restore-keys: |
+            fatal-build-
+
+      - name: Fingerprint XBE (skip pipeline if unchanged)
+        id: fingerprint
+        shell: pwsh
+        run: |
+          $sha = (Get-FileHash game/default.xbe -Algorithm SHA256).Hash
+          $marker = "${{ env.ENGINE_DIR }}/src/recomp/gen/.source-sha"
+          $need = $true
+          if (Test-Path $marker) {
+            $prev = (Get-Content $marker -Raw).Trim()
+            if ($prev -eq $sha) { $need = $false }
+          }
+          Write-Host "xbe sha256: $sha"
+          Write-Host "pipeline needed: $need"
+          "need=$need" | Out-File $env:GITHUB_OUTPUT -Append
+
       - name: Install Python dependencies
+        if: steps.fingerprint.outputs.need == 'true'
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
@@ -65,27 +95,39 @@ jobs:
           python -c "import capstone; print('capstone', capstone.__version__)"
 
       - name: "Pipeline 2/5 - Parse XBE"
+        if: steps.fingerprint.outputs.need == 'true'
         working-directory: ${{ env.TOOLKIT_DIR }}
         run: python -m tools.xbe_parser ${{ github.workspace }}/game/default.xbe --json ${{ github.workspace }}/game/fatalframe_analysis.json
 
       - name: "Pipeline 3/5 - Disassemble"
+        if: steps.fingerprint.outputs.need == 'true'
         working-directory: ${{ env.TOOLKIT_DIR }}
         run: python -m tools.disasm ${{ github.workspace }}/game/default.xbe --text-only -v
 
       - name: "Pipeline 4a/5 - Identify functions"
+        if: steps.fingerprint.outputs.need == 'true'
         working-directory: ${{ env.TOOLKIT_DIR }}
         run: python -m tools.func_id ${{ github.workspace }}/game/default.xbe -v
 
       - name: "Pipeline 4b/5 - ABI analysis"
+        if: steps.fingerprint.outputs.need == 'true'
         working-directory: ${{ env.TOOLKIT_DIR }}
         run: python -m tools.abi_analysis ${{ github.workspace }}/game/default.xbe -v
 
       - name: "Pipeline 5/5 - Recompile to C"
+        if: steps.fingerprint.outputs.need == 'true'
         working-directory: ${{ env.TOOLKIT_DIR }}
         run: >
           python -m tools.recomp ${{ github.workspace }}/game/default.xbe --all --split 250
           --game-name "Fatal Frame"
           --gen-dir ${{ env.ENGINE_DIR }}/src/recomp/gen
+
+      - name: "Stamp XBE fingerprint"
+        if: steps.fingerprint.outputs.need == 'true'
+        shell: pwsh
+        run: |
+          (Get-FileHash ${{ github.workspace }}/game/default.xbe -Algorithm SHA256).Hash |
+            Out-File "${{ env.ENGINE_DIR }}/src/recomp/gen/.source-sha" -NoNewline
 
       - name: "Check generated code"
         shell: pwsh
@@ -93,17 +135,14 @@ jobs:
           $gen = "${{ env.ENGINE_DIR }}/src/recomp/gen"
           $files = Get-ChildItem $gen -Filter *.c
           Write-Host "generated C files: $($files.Count)"
-          $files | Select-Object Name, Length
           if ($files.Count -eq 0) { throw "recomp produced no C files" }
 
       - name: "Build 6/7 - Configure (CMake)"
         shell: pwsh
         run: |
           cmake --version
-          Write-Host "engine CMakeLists present: $(Test-Path '${{ env.ENGINE_DIR }}/CMakeLists.txt')"
           cmake -S "${{ env.ENGINE_DIR }}" -B "${{ env.ENGINE_DIR }}/build" `
                 -DXBOXRECOMP_DIR="${{ env.TOOLKIT_DIR }}" -A x64
-          Write-Host "---- configured project ----"
           Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern 'CMAKE_HOME_DIRECTORY|XBOXRECOMP_DIR' | ForEach-Object { $_.Line }
           $cmakeHome = (Select-String -Path "${{ env.ENGINE_DIR }}/build/CMakeCache.txt" -Pattern '^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$').Matches[0].Groups[1].Value
           $engineNorm = ("${{ env.ENGINE_DIR }}" -replace '\\','/')
@@ -145,7 +184,13 @@ jobs:
           $exe = "${{ env.ENGINE_DIR }}/build/Release/fatalframe_native.exe"
           if (Test-Path $exe) {
             Compress-Archive -Path $exe -DestinationPath fatalframe_native.zip -Force
-            gh release create "run-${{ github.run_id }}" fatalframe_native.zip --repo $repo --title "build run ${{ github.run_id }}" --notes "Automated static-recompilation build. Contains the game's code - private use only."
+            $tag = "run-${{ github.run_id }}"
+            gh release view $tag --repo $repo 2>$null
+            if ($LASTEXITCODE -ne 0) {
+              gh release create $tag fatalframe_native.zip --repo $repo --title "build run ${{ github.run_id }}" --notes "Automated static-recompilation build. Contains the game's code - private use only."
+            } else {
+              gh release upload $tag fatalframe_native.zip --clobber --repo $repo
+            }
           } else {
             Write-Host "::warning::no executable produced - nothing to publish"
           }
