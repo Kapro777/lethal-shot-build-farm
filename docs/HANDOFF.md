@@ -30,8 +30,8 @@ natively. Legal posture is non-negotiable:
 |---|---|---|
 | `Kapro777/lethal-shot-engine` | **public** | host engine `src/main.c`, `src/recomp_manual.c`, `CMakeLists.txt`, `config/seed_functions.json`, `config/trace_functions.json`, `docs/` (bring-up log, targets), `tools/bringup/` (disassembler, generated-C analyser, safe runner) |
 | `Kapro777/lethal-shot-build-farm` | **public** | CI: `.github/workflows/build.yml`, docs (this file + `PROMPT.md`) |
-| `Kapro777/lethal-shot-input` | **private** | the owner's `default.xbe` (CI input, read-only) |
-| `Kapro777/lethal-shot-builds` | **private** | built `.exe` per CI run, as releases tagged `run-<run_id>` |
+| _private input store_ | private | the title executable for CI -- referenced only by repository secret, never named |
+| _private artifact store_ | private | built `.exe` per CI run, as releases tagged `run-<run_id>` -- referenced only by repository secret |
 
 Toolkit: `github.com/sp00nznet/xboxrecomp`, pinned at **v0.17.0** in CI.
 Everything is on branch `main` in every repository — no feature branches;
@@ -64,18 +64,20 @@ That is the primary feedback channel — no local machine is involved at
 any point. A crash is data, not a failure; the smoke step never fails the
 build on the game's exit code.
 
-The private repos are touched read-only by the pipeline: the XBE comes
-from `lethal-shot-input`, the built exe goes to `lethal-shot-builds`.
-An engineer needing the XBE locally (for the disassembler) downloads it
-from `lethal-shot-input` — it is the owner's own copy.
+The pipeline touches two private stores: an input store (the title
+executable for CI) and an artifact store (built binaries). Both are
+referenced only by repository secret from inside the workflow — neither
+their names nor their contents are named anywhere in this documentation.
+An engineer who needs the title executable locally (for the
+disassembler) asks the owner for it.
 
 ## 4. Auth / secrets
 
-* The workflow fetches the XBE with secret `PORT_BUILD_PAT` (a PAT stored
-  as a repo secret in `lethal-shot-build-farm`); it is also used to
-  publish releases to `lethal-shot-builds`. Repository renames did not
-  break it (verified after the 2026-11-15 renames).
-* `gh` CLI is logged in as `Kapro777`.
+* The workflow authenticates to the two private stores with a repository
+  secret (a PAT), also referenced only by name inside the workflow.
+  Repository renames did not break it (verified after the 2026-11-15
+  renames).
+* `gh` CLI is logged in as the repository owner.
 
 ## 5. Current state (this handoff)
 

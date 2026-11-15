@@ -27,9 +27,12 @@ jobs:
     env:
       TOOLKIT_REF: v0.17.0
       TOOLKIT_REPO: sp00nznet/xboxrecomp
+      # The engine repository is public and named here. The input and
+      # artifact stores are not: their names live in repository secrets,
+      # so nothing in this file or in the job logs identifies them.
       ENGINE_REPO: Kapro777/lethal-shot-engine
-      XBE_REPO: Kapro777/lethal-shot-input
-      BUILDS_REPO: Kapro777/lethal-shot-builds
+      XBE_REPO: ${{ secrets.XBE_REPO }}
+      BUILDS_REPO: ${{ secrets.BUILDS_REPO }}
       ENGINE_DIR: ${{ github.workspace }}/engine
       TOOLKIT_DIR: ${{ github.workspace }}/xboxrecomp
     steps:

@@ -13,8 +13,9 @@ should not ask for, a development machine.
   only in the private repositories and the private artifact store.
 * **Public repos**: `lethal-shot-engine` (the engine + docs + bring-up
   tools), `lethal-shot-build-farm` (this repo — CI glue + handoff docs).
-* **Private repos**: `lethal-shot-input` (the XBE, input only),
-  `lethal-shot-builds` (built binaries, output only).
+* The pipeline additionally reads from a private input store and writes
+  to a private artifact store; both are referenced only by repository
+  secret inside the workflow, and neither is named in any repository.
 * **All compilation runs in GitHub Actions** (windows-latest). Never
   install a local toolchain; never put build outputs anywhere but the
   private artifact store.
@@ -32,8 +33,9 @@ gh run view <id> -R <owner>/lethal-shot-build-farm --log-failed
 ```
 
 Each successful run publishes:
-* a **private release** `run-<run-id>` in `lethal-shot-builds` containing
-  `lethalshot_native.exe` (the current build the owner can test);
+* a **private release** `run-<run-id>` (published by CI to the private
+  artifact store) containing `lethalshot_native.exe` (the current build
+  the owner can test);
 * an **artifact `smoke-run-<run-id>`** — the stdout/stderr of a bounded
   on-runner execution of that exe (the game data directory is already in
   the workspace). This is your feedback channel: the job log ends with a
@@ -89,7 +91,7 @@ as the PFIFO channel), or surface allocation through the VRAM window.
    * `[CRASH] ... Xbox VA of fault: 0x...` → disassemble around the
      innermost guest return address:
      `py -3 tools/bringup/xbe_tools.py disasm <xbe> <va-32> <va+64>`
-     (the XBE is in the private input repo). Then find the owning
+(the title executable lives in the private input store -- the CI has it; the owner has it locally)
      function in the generated C:
      `py -3 tools/bringup/analyze_gen.py whom <gen-dir> 0x000EE943`
      (`<gen-dir>` is the `generated-c-<run-id>` artifact, e.g.
