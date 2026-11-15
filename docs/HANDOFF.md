@@ -1,4 +1,4 @@
-# HANDOFF — Fatal Frame (Xbox) static recompilation, bring-up phase
+# HANDOFF — Lethal Shot (Xbox) static recompilation, bring-up phase
 
 > Complete context for another engineer/AI taking over. No game code or
 > copyrighted material is in this repository or in this document; everything
@@ -8,7 +8,7 @@
 
 ## 1. Mission
 
-Statically recompile **Fatal Frame (Xbox, 2002, Tecmo)** — retail English
+Statically recompile **Lethal Shot (Xbox, 2002, Tecmo)** — retail English
 build — into a **native executable**: bring it up on **Windows x64** first,
 then target **Android arm64** as the deliverable. Product shape is the
 GDroid/Hades-port model: a distributable **engine**, the **user supplies their
@@ -24,10 +24,10 @@ own copy of the game**, it runs natively. Legal posture is non-negotiable:
 
 | Repo | Visibility | Contents |
 |---|---|---|
-| `Kapro777/fatal-frame-native-engine` | **public** | host engine: `src/main.c`, `src/recomp_manual.c`, `CMakeLists.txt`, `config/seed_functions.json`, `config/trace_functions.json`, `docs/` (legal notices, targets, bring-up log) |
-| `Kapro777/fatal-frame-xbox-recomp` | **public** | CI build farm: `.github/workflows/build.yml`, docs (this file) |
-| `Kapro777/fatal-frame-xbe` | **private** | the owner's `default.xbe` (input for CI) |
-| `Kapro777/fatal-frame-builds` | **private** | built `.exe` per CI run, as releases tagged `run-<run_id>` |
+| `Kapro777/lethal-shot-engine` | **public** | host engine: `src/main.c`, `src/recomp_manual.c`, `CMakeLists.txt`, `config/seed_functions.json`, `config/trace_functions.json`, `docs/` (legal notices, targets, bring-up log) |
+| `Kapro777/lethal-shot-build-farm` | **public** | CI build farm: `.github/workflows/build.yml`, docs (this file) |
+| `Kapro777/lethal-shot-input` | **private** | the owner's `default.xbe` (input for CI) |
+| `Kapro777/lethal-shot-builds` | **private** | built `.exe` per CI run, as releases tagged `run-<run_id>` |
 
 Toolkit: `github.com/sp00nznet/xboxrecomp`, pinned at **v0.17.0** in CI
 (local clone: `C:\Users\USER\fatal\xboxrecomp`).
@@ -38,11 +38,11 @@ Toolkit: `github.com/sp00nznet/xboxrecomp`, pinned at **v0.17.0** in CI
   analysis). Never install VS/MSVC locally; compilations run in GitHub
   Actions. Local `cmake` is NOT installed and should not be.
 * **CI**: `windows-latest` runners (VS, MSVC, Python preinstalled). Workflow
-  `build.yml` in `fatal-frame-xbox-recomp` runs on push to `main` or via
-  `gh workflow run build -R Kapro777/fatal-frame-xbox-recomp --ref main`.
+  `build.yml` in `lethal-shot-build-farm` runs on push to `main` or via
+  `gh workflow run build -R Kapro777/lethal-shot-build-farm --ref main`.
 * **Auth**: `gh` CLI is logged in as `Kapro777` (token scopes include `repo`).
   The workflow fetches the XBE from the private store using secret
-  `PORT_BUILD_PAT` (a PAT stored as a repo secret in `fatal-frame-xbox-recomp`).
+  `PORT_BUILD_PAT` (a PAT stored as a repo secret in `lethal-shot-build-farm`).
 * **Local game files**: disc extracted to `C:\Users\USER\fatal\game\`
   (`default.xbe` + `Media/`, 1,856 files). `C:\Users\USER\fatal\run\` holds the
   downloaded exe and a junction `run\game -> game` so the exe finds its data.
@@ -118,13 +118,13 @@ addresses to the seed JSON. The script automates exactly that.)
 
 Stop when the unresolved count converges. Then **one** CI build:
 ```bash
-cd fatal-frame-native-engine && git add -A && git commit -m "seeds round N" && git push
-gh workflow run build -R Kapro777/fatal-frame-xbox-recomp --ref main
+cd lethal-shot-engine && git add -A && git commit -m "seeds round N" && git push
+gh workflow run build -R Kapro777/lethal-shot-build-farm --ref main
 ```
 
 ### 5b. Full CI + run + diagnose loop (~18 min/iteration)
 
-1. Wait for the run: `gh run list -R Kapro777/fatal-frame-xbox-recomp`.
+1. Wait for the run: `gh run list -R Kapro777/lethal-shot-build-farm`.
 2. `C:\Users\USER\fatal\run-latest.ps1` → download + run.
 3. Read `C:\Users\USER\fatal\run\err.txt` in this order:
    * `[ICALL] Failed to resolve VA 0x...` — indirect targets the dispatch
@@ -143,7 +143,7 @@ gh workflow run build -R Kapro777/fatal-frame-xbox-recomp --ref main
    cd C:\Users\USER\fatal\xboxrecomp
    py -3 -m tools.seed_from_log C:\Users\USER\fatal\run\err.txt game_files/default.xbe \
        --functions tools/disasm/output/functions.json \
-       --seeds ../fatal-frame-native-engine/config/seed_functions.json
+       --seeds ../lethal-shot-engine/config/seed_functions.json
    ```
    Then re-run the local 5a loop (the CI pipeline picks up the seed file via
    `--seed-functions`), or push + CI.

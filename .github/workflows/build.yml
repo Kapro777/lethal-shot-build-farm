@@ -1,4 +1,4 @@
-# Fatal Frame (Xbox) static recompilation - cloud build
+# Lethal Shot - static recompilation, cloud build
 #
 # Runs the whole pipeline + MSVC build on GitHub runners:
 #   parse XBE -> disasm -> func_id -> abi_analysis -> recomp to C -> compile .exe
@@ -27,9 +27,9 @@ jobs:
     env:
       TOOLKIT_REF: v0.17.0
       TOOLKIT_REPO: sp00nznet/xboxrecomp
-      ENGINE_REPO: Kapro777/fatal-frame-native-engine
-      XBE_REPO: Kapro777/fatal-frame-xbe
-      BUILDS_REPO: Kapro777/fatal-frame-builds
+      ENGINE_REPO: Kapro777/lethal-shot-engine
+      XBE_REPO: Kapro777/lethal-shot-input
+      BUILDS_REPO: Kapro777/lethal-shot-builds
       ENGINE_DIR: ${{ github.workspace }}/engine
       TOOLKIT_DIR: ${{ github.workspace }}/xboxrecomp
     steps:
@@ -70,9 +70,9 @@ jobs:
           path: |
             engine/build
             engine/src/recomp/gen
-          key: fatal-build-v6-${{ github.sha }}
+          key: lethal-build-v1-${{ github.sha }}
           restore-keys: |
-            fatal-build-v6-
+            lethal-build-v1-
 
       - name: Fingerprint XBE (skip pipeline if unchanged)
         id: fingerprint
@@ -108,7 +108,7 @@ jobs:
       - name: "Pipeline 2/5 - Parse XBE"
         if: steps.fingerprint.outputs.need == 'true'
         working-directory: ${{ env.TOOLKIT_DIR }}
-        run: python -m tools.xbe_parser ${{ github.workspace }}/game/default.xbe --json ${{ github.workspace }}/game/fatalframe_analysis.json
+        run: python -m tools.xbe_parser ${{ github.workspace }}/game/default.xbe --json ${{ github.workspace }}/game/title_analysis.json
 
       - name: "Pipeline 3/5 - Disassemble"
         if: steps.fingerprint.outputs.need == 'true'
@@ -130,7 +130,7 @@ jobs:
         working-directory: ${{ env.TOOLKIT_DIR }}
         run: >
           python -m tools.recomp ${{ github.workspace }}/game/default.xbe --all --split 250
-          --game-name "Fatal Frame"
+          --game-name "Lethal Shot"
           --gen-dir ${{ env.ENGINE_DIR }}/src/recomp/gen
           --entry-stubs
           --trace-functions ${{ env.ENGINE_DIR }}/config/trace_functions.json
@@ -167,12 +167,12 @@ jobs:
 
       - name: "Build 7/7 - Compile (MSVC, Release)"
         shell: pwsh
-        run: cmake --build "${{ env.ENGINE_DIR }}/build" --config Release --target fatalframe_native --parallel
+        run: cmake --build "${{ env.ENGINE_DIR }}/build" --config Release --target lethalshot_native --parallel
 
       - name: "Locate executable"
         shell: pwsh
         run: |
-          $exe = Get-ChildItem "${{ env.ENGINE_DIR }}/build" -Recurse -Filter fatalframe_native.exe -ErrorAction SilentlyContinue
+          $exe = Get-ChildItem "${{ env.ENGINE_DIR }}/build" -Recurse -Filter lethalshot_native.exe -ErrorAction SilentlyContinue
           if (-not $exe) {
             Write-Host "::error::executable not found under engine/build"
             Get-ChildItem "${{ env.ENGINE_DIR }}/build" -Recurse -Filter *.exe | Select-Object FullName
@@ -185,7 +185,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path outputs | Out-Null
-          Copy-Item "${{ env.ENGINE_DIR }}/build/Release/fatalframe_native.exe" outputs/ -ErrorAction SilentlyContinue
+          Copy-Item "${{ env.ENGINE_DIR }}/build/Release/lethalshot_native.exe" outputs/ -ErrorAction SilentlyContinue
           foreach ($d in @("${{ env.TOOLKIT_DIR }}/tools/disasm/output", "${{ env.TOOLKIT_DIR }}/tools/func_id/output", "${{ env.TOOLKIT_DIR }}/tools/abi_analysis/output")) {
             if (Test-Path $d) { Copy-Item $d outputs -Recurse -Force -ErrorAction SilentlyContinue }
           }
@@ -198,15 +198,15 @@ jobs:
           GH_TOKEN: ${{ secrets.PORT_BUILD_PAT }}
         run: |
           $repo = "${{ env.BUILDS_REPO }}"
-          $exe = "${{ env.ENGINE_DIR }}/build/Release/fatalframe_native.exe"
+          $exe = "${{ env.ENGINE_DIR }}/build/Release/lethalshot_native.exe"
           if (Test-Path $exe) {
-            Compress-Archive -Path $exe -DestinationPath fatalframe_native.zip -Force
+            Compress-Archive -Path $exe -DestinationPath lethalshot_native.zip -Force
             $tag = "run-${{ github.run_id }}"
             gh release view $tag --repo $repo 2>$null
             if ($LASTEXITCODE -ne 0) {
-              gh release create $tag fatalframe_native.zip --repo $repo --title "build run ${{ github.run_id }}" --notes "Automated static-recompilation build. Contains the game's code - private use only."
+              gh release create $tag lethalshot_native.zip --repo $repo --title "build run ${{ github.run_id }}" --notes "Automated static-recompilation build. Contains the game's code - private use only."
             } else {
-              gh release upload $tag fatalframe_native.zip --clobber --repo $repo
+              gh release upload $tag lethalshot_native.zip --clobber --repo $repo
             }
           } else {
             Write-Host "::warning::no executable produced - nothing to publish"
