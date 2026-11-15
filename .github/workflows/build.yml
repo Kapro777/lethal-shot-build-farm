@@ -67,9 +67,9 @@ jobs:
           path: |
             engine/build
             engine/src/recomp/gen
-          key: fatal-build-v3-${{ github.sha }}
+          key: fatal-build-v4-${{ github.sha }}
           restore-keys: |
-            fatal-build-v3-
+            fatal-build-v4-
 
       - name: Fingerprint XBE (skip pipeline if unchanged)
         id: fingerprint
