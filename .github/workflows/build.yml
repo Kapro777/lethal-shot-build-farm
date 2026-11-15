@@ -70,22 +70,30 @@ jobs:
           path: |
             engine/build
             engine/src/recomp/gen
-          key: fatal-build-v5-${{ github.sha }}
+          key: fatal-build-v6-${{ github.sha }}
           restore-keys: |
-            fatal-build-v5-
+            fatal-build-v6-
 
       - name: Fingerprint XBE (skip pipeline if unchanged)
         id: fingerprint
         shell: pwsh
         run: |
           $sha = (Get-FileHash game/default.xbe -Algorithm SHA256).Hash
+          # The pipeline output also depends on the engine's config: the seed
+          # list and the trace list are baked into the generated C, so either
+          # changing must re-run the pipeline even when the XBE is untouched.
+          $cfg = ""
+          foreach ($f in (Get-ChildItem "${{ env.ENGINE_DIR }}/config" -Filter *.json | Sort-Object Name)) {
+            $cfg += (Get-FileHash $f.FullName -Algorithm SHA256).Hash + ";"
+          }
+          $fingerprint = "$sha|$cfg"
           $marker = "${{ env.ENGINE_DIR }}/src/recomp/gen/.source-sha"
           $need = $true
           if (Test-Path $marker) {
             $prev = (Get-Content $marker -Raw).Trim()
-            if ($prev -eq $sha) { $need = $false }
+            if ($prev -eq $fingerprint) { $need = $false }
           }
-          Write-Host "xbe sha256: $sha"
+          Write-Host "fingerprint: $fingerprint"
           Write-Host "pipeline needed: $need"
           "need=$need" | Out-File $env:GITHUB_OUTPUT -Append
 
@@ -131,8 +139,12 @@ jobs:
         if: steps.fingerprint.outputs.need == 'true'
         shell: pwsh
         run: |
-          (Get-FileHash ${{ github.workspace }}/game/default.xbe -Algorithm SHA256).Hash |
-            Out-File "${{ env.ENGINE_DIR }}/src/recomp/gen/.source-sha" -NoNewline
+          $sha = (Get-FileHash ${{ github.workspace }}/game/default.xbe -Algorithm SHA256).Hash
+          $cfg = ""
+          foreach ($f in (Get-ChildItem "${{ env.ENGINE_DIR }}/config" -Filter *.json | Sort-Object Name)) {
+            $cfg += (Get-FileHash $f.FullName -Algorithm SHA256).Hash + ";"
+          }
+          "$sha|$cfg" | Out-File "${{ env.ENGINE_DIR }}/src/recomp/gen/.source-sha" -NoNewline
 
       - name: "Check generated code"
         shell: pwsh
