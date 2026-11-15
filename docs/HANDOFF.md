@@ -60,9 +60,23 @@ engine repo out fresh, so uncommitted engine changes are invisible.
 The workflow's **smoke run** executes the freshly built exe on the
 windows runner for up to two minutes with the runtime watchdog
 (`RECOMP_WATCHDOG_SECS=25`) and publishes the stderr as a build artifact.
-That is the primary feedback channel — no local machine is involved at
-any point. A crash is data, not a failure; the smoke step never fails the
-build on the game's exit code.
+A crash is data, not a failure; the smoke step never fails the build on
+the game's exit code.
+
+Two limits on that channel, both measured:
+
+* **The runner has no disc.** Only the XBE is fetched, so the smoke run
+  proves the boot but cannot reach the file/asset stage. Beyond device
+  creation, the authoritative log is the owner's local run
+  (`tools/bringup/safe-run.ps1` in the engine repo) pasted into the chat.
+* **Reading logs/artifacts needs extra hosts.** `gh run view --log` and
+  `gh run download` redirect to `results-receiver.actions.githubusercontent.com`
+  and `*.blob.core.windows.net`. An agent whose egress is limited to
+  `github.com` / `api.github.com` can still dispatch runs, read run and
+  per-step conclusions, list artifacts and touch repositories, but it
+  **cannot read the log text or the artifact contents** — in that case
+  ask the owner for the `SMOKE_SUMMARY` line and `err.txt` instead of
+  guessing.
 
 The private repos are touched read-only by the pipeline: the XBE comes
 from `lethal-shot-input`, the built exe goes to `lethal-shot-builds`.
@@ -114,10 +128,24 @@ disassembly and probe evidence is in the engine repo's
   (`nv2a_hook_handle_vram` for `0xF0000000`–`0xFCFFFFFF`): the
   post-create read at `0xF71182A3`.
 
-**Unverified at handoff time**: build `run-43760804327` contains the VRAM
-fix, the repository renames and the smoke-run workflow; its smoke run had
-not been read yet. Read it first (or trigger a fresh run) — it says how
-much further the boot gets.
+**Verified since (engine commit `01263db`, build `run-43765103996`, run by
+the owner with the full disc)**: the VRAM fix moved the boot out of D3D
+entirely. The push-buffer wait at `0x000EECD6` no longer even executes and
+the title reaches **file I/O** — 327 kernel calls, then 19 identical cycles
+of `RtlInitAnsiString (289)` → `NtCreateFile (190)` → `NtReadFile (219)` →
+`NtClose (187)` from return addresses inside a single function
+(`0x000D84xx`–`0x000D8Axx`), then a crash reading guest VA `0xCA5DFE19`
+(`esi = 0xCA5DFE19`, `eax = 0xFFFDA6EA`, `ecx = 0xADADADAD`) — a pointer
+chase through an uninitialised structure while assets load. The open
+question is **which file the cycle was on when it died**: the kernel log
+names the path of every `NtCreateFile`, and the disc extraction in the run
+directory is complete, so the read can be compared against the real file.
+
+**CI state**: runs `43765103996` and `43767172948` are green and both
+published `smoke-run-<run-id>` + `generated-c-<run-id>`. Caveat: the
+runner has the XBE only, not the disc, so a CI smoke run reproduces the
+boot but stops before the file stage — file-stage evidence comes from the
+owner running `tools/bringup/safe-run.ps1` locally and pasting `err.txt`.
 
 **Endpoint to expect**: after device create the library continues
 (`0x000EED14` → `sub_000EE3C0` → surface/framebuffer setup → the first
