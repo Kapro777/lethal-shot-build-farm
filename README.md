@@ -32,8 +32,8 @@ published from this repository.
 * No copyrighted game code or assets are committed here. The XBE comes from a
   private store and is never published; the generated C code lives only in CI
   runners and the private artifact store.
-* Lethal Shot is a trademark of its respective owners. This project is not
-  affiliated with or endorsed by Tecmo, Microsoft, or any rights holder.
+* The original title belongs to its respective owners. This project is not
+  affiliated with or endorsed by any rights holder.
 
 ## How a build runs
 

@@ -211,3 +211,58 @@ jobs:
           } else {
             Write-Host "::warning::no executable produced - nothing to publish"
           }
+
+      # ------------------------------------------------------------------
+      # Smoke run: execute the freshly built binary on the runner for a
+      # bounded time and capture the diagnostics. The game data directory
+      # (game/) already exists in the workspace from the XBE step, and the
+      # runtime's own watchdog ends a hang cleanly. This is what makes an
+      # iteration possible without a development machine: the run log is
+      # uploaded as a build artifact and its tail is echoed into the job
+      # log, so "did it get further than last time?" is answerable from
+      # the Actions tab alone. A crash is data, not a failure - the step
+      # never fails the build on the game's exit code.
+      # ------------------------------------------------------------------
+      - name: "Smoke run (bounded, diagnostics as artifact)"
+        if: always()
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          $exe = "${{ env.ENGINE_DIR }}/build/Release/lethalshot_native.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "no executable; skipping smoke run"
+            exit 0
+          }
+          $env:RECOMP_WATCHDOG_SECS = "25"
+          $env:RECOMP_KERNEL_LOG_BUDGET = "2000"
+          New-Item -ItemType Directory -Force -Path smoke | Out-Null
+          $p = Start-Process -FilePath $exe -WorkingDirectory "${{ github.workspace }}" `
+                -RedirectStandardOutput smoke/out.txt -RedirectStandardError smoke/err.txt -PassThru
+          $p.WaitForExit(120000) | Out-Null
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force; "smoke run killed at the 2-minute bound" }
+          else { "smoke run exited on its own after the watchdog (code $($p.ExitCode))" }
+          Write-Host "::group::smoke run - tail of err.txt"
+          if (Test-Path smoke/err.txt) { Get-Content smoke/err.txt -Tail 40 }
+          Write-Host "::endgroup::"
+          $crashes = (Select-String -Path smoke/err.txt -Pattern '\[CRASH\]' -ErrorAction SilentlyContinue | Measure-Object).Count
+          $kernel = (Select-String -Path smoke/err.txt -Pattern '\[KERNEL\] #' -ErrorAction SilentlyContinue | Measure-Object).Count
+          Write-Host "SMOKE_SUMMARY kernel_calls=$kernel crashes=$crashes bytes=$((Get-Item smoke/err.txt).Length)"
+
+      - name: "Upload smoke-run diagnostics"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-run-${{ github.run_id }}
+          path: smoke/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: "Upload generated C (private analysis copy)"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-c-${{ github.run_id }}
+          path: ${{ env.ENGINE_DIR }}/src/recomp/gen/
+          retention-days: 30
+          if-no-files-found: ignore
