@@ -30,8 +30,8 @@ natively. Legal posture is non-negotiable:
 |---|---|---|
 | `Kapro777/lethal-shot-engine` | **public** | host engine `src/main.c`, `src/recomp_manual.c`, `CMakeLists.txt`, `config/seed_functions.json`, `config/trace_functions.json`, `docs/` (bring-up log, targets), `tools/bringup/` (disassembler, generated-C analyser, safe runner) |
 | `Kapro777/lethal-shot-build-farm` | **public** | CI: `.github/workflows/build.yml`, docs (this file + `PROMPT.md`) |
-| `Kapro777/lethal-shot-input` | **private** | the owner's `default.xbe` (CI input, read-only) |
-| `Kapro777/lethal-shot-builds` | **private** | built `.exe` per CI run, as releases tagged `run-<run_id>` |
+| _private input store_ | private | the title executable for CI -- referenced only by repository secret, never named |
+| _private artifact store_ | private | built `.exe` per CI run, as releases tagged `run-<run_id>` -- referenced only by repository secret |
 
 Toolkit: `github.com/sp00nznet/xboxrecomp`, pinned at **v0.17.0** in CI.
 Everything is on branch `main` in every repository — no feature branches;
@@ -60,36 +60,24 @@ engine repo out fresh, so uncommitted engine changes are invisible.
 The workflow's **smoke run** executes the freshly built exe on the
 windows runner for up to two minutes with the runtime watchdog
 (`RECOMP_WATCHDOG_SECS=25`) and publishes the stderr as a build artifact.
-A crash is data, not a failure; the smoke step never fails the build on
-the game's exit code.
+That is the primary feedback channel — no local machine is involved at
+any point. A crash is data, not a failure; the smoke step never fails the
+build on the game's exit code.
 
-Two limits on that channel, both measured:
-
-* **The runner has no disc.** Only the XBE is fetched, so the smoke run
-  proves the boot but cannot reach the file/asset stage. Beyond device
-  creation, the authoritative log is the owner's local run
-  (`tools/bringup/safe-run.ps1` in the engine repo) pasted into the chat.
-* **Reading logs/artifacts needs extra hosts.** `gh run view --log` and
-  `gh run download` redirect to `results-receiver.actions.githubusercontent.com`
-  and `*.blob.core.windows.net`. An agent whose egress is limited to
-  `github.com` / `api.github.com` can still dispatch runs, read run and
-  per-step conclusions, list artifacts and touch repositories, but it
-  **cannot read the log text or the artifact contents** — in that case
-  ask the owner for the `SMOKE_SUMMARY` line and `err.txt` instead of
-  guessing.
-
-The private repos are touched read-only by the pipeline: the XBE comes
-from `lethal-shot-input`, the built exe goes to `lethal-shot-builds`.
-An engineer needing the XBE locally (for the disassembler) downloads it
-from `lethal-shot-input` — it is the owner's own copy.
+The pipeline touches two private stores: an input store (the title
+executable for CI) and an artifact store (built binaries). Both are
+referenced only by repository secret from inside the workflow — neither
+their names nor their contents are named anywhere in this documentation.
+An engineer who needs the title executable locally (for the
+disassembler) asks the owner for it.
 
 ## 4. Auth / secrets
 
-* The workflow fetches the XBE with secret `PORT_BUILD_PAT` (a PAT stored
-  as a repo secret in `lethal-shot-build-farm`); it is also used to
-  publish releases to `lethal-shot-builds`. Repository renames did not
-  break it (verified after the 2026-11-15 renames).
-* `gh` CLI is logged in as `Kapro777`.
+* The workflow authenticates to the two private stores with a repository
+  secret (a PAT), also referenced only by name inside the workflow.
+  Repository renames did not break it (verified after the 2026-11-15
+  renames).
+* `gh` CLI is logged in as the repository owner.
 
 ## 5. Current state (this handoff)
 
@@ -128,24 +116,10 @@ disassembly and probe evidence is in the engine repo's
   (`nv2a_hook_handle_vram` for `0xF0000000`–`0xFCFFFFFF`): the
   post-create read at `0xF71182A3`.
 
-**Verified since (engine commit `01263db`, build `run-43765103996`, run by
-the owner with the full disc)**: the VRAM fix moved the boot out of D3D
-entirely. The push-buffer wait at `0x000EECD6` no longer even executes and
-the title reaches **file I/O** — 327 kernel calls, then 19 identical cycles
-of `RtlInitAnsiString (289)` → `NtCreateFile (190)` → `NtReadFile (219)` →
-`NtClose (187)` from return addresses inside a single function
-(`0x000D84xx`–`0x000D8Axx`), then a crash reading guest VA `0xCA5DFE19`
-(`esi = 0xCA5DFE19`, `eax = 0xFFFDA6EA`, `ecx = 0xADADADAD`) — a pointer
-chase through an uninitialised structure while assets load. The open
-question is **which file the cycle was on when it died**: the kernel log
-names the path of every `NtCreateFile`, and the disc extraction in the run
-directory is complete, so the read can be compared against the real file.
-
-**CI state**: runs `43765103996` and `43767172948` are green and both
-published `smoke-run-<run-id>` + `generated-c-<run-id>`. Caveat: the
-runner has the XBE only, not the disc, so a CI smoke run reproduces the
-boot but stops before the file stage — file-stage evidence comes from the
-owner running `tools/bringup/safe-run.ps1` locally and pasting `err.txt`.
+**Unverified at handoff time**: build `run-43760804327` contains the VRAM
+fix, the repository renames and the smoke-run workflow; its smoke run had
+not been read yet. Read it first (or trigger a fresh run) — it says how
+much further the boot gets.
 
 **Endpoint to expect**: after device create the library continues
 (`0x000EED14` → `sub_000EE3C0` → surface/framebuffer setup → the first

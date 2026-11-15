@@ -13,8 +13,9 @@ should not ask for, a development machine.
   only in the private repositories and the private artifact store.
 * **Public repos**: `lethal-shot-engine` (the engine + docs + bring-up
   tools), `lethal-shot-build-farm` (this repo — CI glue + handoff docs).
-* **Private repos**: `lethal-shot-input` (the XBE, input only),
-  `lethal-shot-builds` (built binaries, output only).
+* The pipeline additionally reads from a private input store and writes
+  to a private artifact store; both are referenced only by repository
+  secret inside the workflow, and neither is named in any repository.
 * **All compilation runs in GitHub Actions** (windows-latest). Never
   install a local toolchain; never put build outputs anywhere but the
   private artifact store.
@@ -32,30 +33,18 @@ gh run view <id> -R <owner>/lethal-shot-build-farm --log-failed
 ```
 
 Each successful run publishes:
-* a **private release** `run-<run-id>` in `lethal-shot-builds` containing
-  `lethalshot_native.exe` (the current build the owner can test);
+* a **private release** `run-<run-id>` (published by CI to the private
+  artifact store) containing `lethalshot_native.exe` (the current build
+  the owner can test);
 * an **artifact `smoke-run-<run-id>`** — the stdout/stderr of a bounded
   on-runner execution of that exe (the game data directory is already in
   the workspace). This is your feedback channel: the job log ends with a
   `SMOKE_SUMMARY kernel_calls=N crashes=M bytes=...` line.
 
 Read the smoke run first, every time: `kernel_calls` is the boot progress
-counter (327 at the last verified point), `crashes` counts `[CRASH]`
-lines, and the artifact holds the log including the crash handler's
+counter (it was 201 at the last handoff), `crashes` counts `[CRASH]`
+lines, and the artifact holds the full log including the crash handler's
 register dump and guest stack.
-
-**Two caveats, both measured — do not plan around them:**
-* the runner has the **XBE only, no disc**, so the smoke run proves the
-  boot but cannot reach the file/asset stage; past device creation the
-  authoritative log is the owner's local run of
-  `tools/bringup/safe-run.ps1`, pasted into the chat;
-* `gh run view --log` / `gh run download` redirect to
-  `results-receiver.actions.githubusercontent.com` and
-  `*.blob.core.windows.net`. If your egress is limited to `github.com` /
-  `api.github.com` you can dispatch runs, see run + per-step conclusions
-  and list artifacts, but you **cannot read log text or artifact
-  contents**. Ask the owner for the `SMOKE_SUMMARY` line and `err.txt`
-  rather than inferring what happened.
 
 ## 2. Where the boot stands (state at handoff)
 
@@ -77,22 +66,10 @@ register dump and guest stack.
   (`nv2a_hook_handle_vram` for `0xF0000000`–`0xFCFFFFFF`) — the
   post-create read at `0xF71182A3`.
 
-**Verified since (engine `01263db`, build `run-43765103996`, owner's machine
-with the full disc)**: the VRAM fix moved the boot out of D3D completely.
-The push-buffer wait no longer runs; the title reaches **file I/O** — 327
-kernel calls, 19 cycles of `RtlInitAnsiString (289)` → `NtCreateFile (190)`
-→ `NtReadFile (219)` → `NtClose (187)` from return addresses inside one
-function (`0x000D84xx`–`0x000D8Axx`), then a crash reading guest VA
-`0xCA5DFE19` (`esi = 0xCA5DFE19`, `eax = 0xFFFDA6EA`,
-`ecx = 0xADADADAD`) — a pointer chase through an uninitialised structure.
-
-**Your first action**: find out **which file** that cycle was on when it
-died. The kernel log names the path of every `NtCreateFile`; match the
-last one against the disc extraction in the owner's run directory and
-compare the bytes the title read with the real file. That answer decides
-the next fix (a format the recompiled code mishandles, a length that
-comes back zero/wrong, or a buffer pointer that the allocator handed out
-uninitialised). CI runs `43765103996` and `43767172948` are green.
+**Unverified at handoff time**: the build `run-43760804327` contains the
+VRAM fix and the repository renames; its smoke run had not been read yet.
+Your first action is to read it (or trigger a fresh run) and see how much
+further the boot gets.
 
 **The endpoint to expect**: after device create, the library continues
 (`0x000EED14` → `sub_000EE3C0` → surface/framebuffer setup → the first
@@ -114,7 +91,7 @@ as the PFIFO channel), or surface allocation through the VRAM window.
    * `[CRASH] ... Xbox VA of fault: 0x...` → disassemble around the
      innermost guest return address:
      `py -3 tools/bringup/xbe_tools.py disasm <xbe> <va-32> <va+64>`
-     (the XBE is in the private input repo). Then find the owning
+(the title executable lives in the private input store -- the CI has it; the owner has it locally)
      function in the generated C:
      `py -3 tools/bringup/analyze_gen.py whom <gen-dir> 0x000EE943`
      (`<gen-dir>` is the `generated-c-<run-id>` artifact, e.g.

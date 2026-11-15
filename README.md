@@ -18,8 +18,8 @@ The ported game's source is split across three repositories, deliberately:
 | `Kapro777/lethal-shot-engine` | **public** | host engine, runtime bridge, build glue, docs. Ships no game code. |
 | `sp00nznet/xboxrecomp` | public (upstream) | the recompilation toolkit itself (MIT) |
 | `Kapro777/lethal-shot-build-farm` (here) | public | CI automation, pipeline notes |
-| `Kapro777/lethal-shot-input` | **private** | the owner's `default.xbe` — input |
-| `Kapro777/lethal-shot-builds` | **private** | built `.exe` — output (derived game code, never distributed) |
+| (input store, private) | an owner-held copy of the title executable - never published, never named |
+| (artifact store, private) | built binaries per CI run - derived game code, never distributed |
 
 Built executables are derivatives of the owner's own legally acquired copy and
 are kept in a **private** artifact store. Nothing derived from the game is ever
@@ -28,7 +28,7 @@ published from this repository.
 ## ⚖️ Legal
 
 * This repository provides automation and documentation only. You must own a
-  legitimate copy of Lethal Shot for the original Xbox.
+  legitimate copy of the original game to use this project.
 * No copyrighted game code or assets are committed here. The XBE comes from a
   private store and is never published; the generated C code lives only in CI
   runners and the private artifact store.
@@ -41,12 +41,12 @@ published from this repository.
 (`workflow_dispatch`):
 
 1. check out the toolkit (pinned `v0.17.0`) and the engine repo
-2. fetch `default.xbe` from the private store (PAT secret `PORT_BUILD_PAT`)
+2. fetch the title executable from the private input store (CI secret)
 3. install `capstone`
 4. `tools.xbe_parser` → `tools.disasm` → `tools.func_id` → `tools.abi_analysis`
    → `tools.recomp --all --split 250`
 5. `cmake` configure + `cmake --build Release` (MSVC, D3D11 backend)
-6. zip the `.exe` and push it to the private `lethal-shot-builds` repo as a
+6. zip the `.exe` and push it to the private artifact store (CI secret) as a
    release tagged `run-<run_id>`
 
 Public repo → unlimited free Actions minutes. Artifacts stay private.
