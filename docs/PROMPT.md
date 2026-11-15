@@ -143,3 +143,16 @@ as the PFIFO channel), or surface allocation through the VRAM window.
   says "the owner's own game disc" and nothing more specific.
 * The exe is named `lethalshot_native`; the CI smoke run and the private
   release are the only ways a build is exercised.
+
+## 6. Endgame (when the port is playable)
+
+When the port runs and is functional, the scaffolding is deleted and only
+the engine source remains for future improvements:
+
+1. this build-farm repository (the CI, the workflow, the smoke run), and
+2. the two private stores (the input store and the artifact store).
+
+What survives is `lethal-shot-engine`: the source, the docs and the
+bring-up log. From then on the work is ordinary source improvement on
+that repository alone — there is no reason to keep build infrastructure,
+secrets, or derived artifacts around once a working build exists.
