@@ -18,8 +18,7 @@ The ported game's source is split across three repositories, deliberately:
 | `Kapro777/lethal-shot-engine` | **public** | host engine, runtime bridge, build glue, docs. Ships no game code. |
 | `sp00nznet/xboxrecomp` | public (upstream) | the recompilation toolkit itself (MIT) |
 | `Kapro777/lethal-shot-build-farm` (here) | public | CI automation, pipeline notes |
-| (input store, private) | an owner-held copy of the title executable - never published, never named |
-| (artifact store, private) | built binaries per CI run - derived game code, never distributed |
+
 
 Built executables are derivatives of the owner's own legally acquired copy and
 are kept in a **private** artifact store. Nothing derived from the game is ever
