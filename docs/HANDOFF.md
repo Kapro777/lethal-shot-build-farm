@@ -76,14 +76,26 @@ via `HalReturnToFirmware(2)`. Root cause chain, fully diagnosed:
    (`g_esp += 4; return`) — the entire rest of device creation never runs.
 3. The call returns to the caller with `eax` still holding the alloc pointer
    `0x80001000`, which a negative HRESULT check reads as failure.
-4. Fix (in progress): **seed** every unresolved call target into
-   `config/seed_functions.json` and add the recomp flag **`--entry-stubs`**
-   (which turns unresolved targets that lie inside known functions into
-   copies entered at the target address — the toolkit's intended mechanism).
+4. **FIXED** (2026-11-15): 808 seed functions (converged via the local loop:
+   called-vs-defined diff over the generated C) + the recomp flag
+   `--entry-stubs`. The device create now runs through: 512 KB alloc
+   (`sub_000ED7E0`), `MmClaimGpuInstanceMemory`, the GPU interrupt setup
+   (KeInitializeDpc / KeConnectInterrupt / HalRegisterShutdownNotification)
+   and HalReadWritePCISpace.
 
-Seed convergence status at handoff: **808 seeds**, locally 4,821 functions
-generated, 202 unresolved targets remaining (down -converging- from 276 →
-296 → 230 → 202). A CI build with the 808 seeds + `--entry-stubs` is running.
+**Current blocker (fully diagnosed, see the engine repo's bring-up log)**: the
+XDK D3D8 lib hangs in its pushbuffer DMA wait at `0x000EECD6` (inside
+`sub_000EE943`): it polls `DMA_GET == DMA_PUT` where GET comes from
+`dev->channel_ptr` (`[0x000F91FC]`) — and that pointer is **garbage
+(0xE8500674)** because the NV2A register aperture is plain zeroed RAM with no
+register semantics (the toolkit's documented stance: *"bridge the D3D8 entry
+point that owns the loop, not to start emulating NV2A"*). Runtime probes
+(`RECOMP_PEEK`, `RECOMP_POKE`) confirm the values; forcing PUT=0 passes the
+wait and the game runs further, then faults on the inconsistent probe state.
+Next options, in order: (1) bridge the D3D entry points to the toolkit's
+`xbox_d3d8` host layer via `--manual-functions` overrides; (2) install the
+NV2A register model (`nv2a_hook_init` + protect the aperture); (3) xemu as
+ground truth.
 
 **Not yet brought up** (expected next blockers): menus after D3D succeeds,
 FMV playback (`Media/movie/*.wmv`, WMVDEC — runtime plays `.wmv` via Media
